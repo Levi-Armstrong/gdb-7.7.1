@@ -1,3 +1,0 @@
-ptid.o: common/ptid.c common/ptid.h
-
-common/ptid.h:
