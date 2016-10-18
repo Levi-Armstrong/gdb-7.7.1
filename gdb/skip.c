@@ -53,6 +53,12 @@ struct skiplist_entry
   struct skiplist_entry *next;
 };
 
+/* If AUTO_BOOLEAN_FALSE, gdb will not attempt to create pending skip file/function.
+   If AUTO_BOOLEAN_TRUE, gdb will automatically create pending skip file/function
+   for unrecognized skip file/function.
+   If AUTO_BOOLEAN_AUTO, gdb will query when skip file/function are unrecognized.  */
+static enum auto_boolean pending_skip_support;
+
 static void add_skiplist_entry (struct skiplist_entry *e);
 static void skip_function (const char *name);
 
@@ -80,28 +86,38 @@ skip_file_command (char *arg, int from_tty)
     {
       symtab = get_last_displayed_symtab ();
       if (symtab == NULL)
-	error (_("No default file now."));
+        error (_("No default file now."));
 
       /* It is not a typo, symtab_to_filename_for_display woule be needlessly
-	 ambiguous.  */
+         ambiguous.  */
       filename = symtab_to_fullname (symtab);
     }
   else
     {
+      /* If pending skip file/function support is turned off, throw
+         error.  */
+      if (pending_skip_support == AUTO_BOOLEAN_FALSE)
+        error (_("Pending set to off. Cannot add skip pending file.\n To enable: skip pending on"));
+
       symtab = lookup_symtab (arg);
-      if (symtab == NULL)
-	{
-	  fprintf_filtered (gdb_stderr, _("No source file named %s.\n"), arg);
-	  if (!nquery (_("\
-Ignore file pending future shared library load? ")))
-	    return;
-	}
+      if (symtab == NULL )
+      {
+        printf_filtered (_("No source file named: %s \n"), arg);
+
+        /* If pending skip file/function support is auto query and the user
+           selects no, then simply return the error code.  */
+        if (pending_skip_support == AUTO_BOOLEAN_AUTO
+            && !nquery (_("Ignore file pending future shared library load? ")))
+          return;
+
+        printf_filtered (_("Source file will be added in the pending state.\n"));
+      }
       /* Do not use SYMTAB's filename, later loaded shared libraries may match
          given ARG but not SYMTAB's filename.  */
       filename = arg;
     }
 
-  e = XZALLOC (struct skiplist_entry);
+  e = XCNEW (struct skiplist_entry);
   e->filename = xstrdup (filename);
   e->enabled = 1;
 
@@ -121,31 +137,35 @@ skip_function_command (char *arg, int from_tty)
       CORE_ADDR pc;
 
       if (!last_displayed_sal_is_valid ())
-	error (_("No default function now."));
+        error (_("No default function now."));
 
       pc = get_last_displayed_addr ();
       if (!find_pc_partial_function (pc, &name, NULL, NULL))
-	{
-	  error (_("No function found containing current program point %s."),
-		  paddress (get_current_arch (), pc));
-	}
+      {
+        error (_("No function found containing current program point %s."),
+        paddress (get_current_arch (), pc));
+      }
       skip_function (name);
     }
   else
     {
-      if (lookup_symbol (arg, NULL, VAR_DOMAIN, NULL) == NULL)
-        {
-	  fprintf_filtered (gdb_stderr,
-			    _("No function found named %s.\n"), arg);
+      /* If pending skip file/function support is turned off, throw
+         error.  */
+      if (pending_skip_support == AUTO_BOOLEAN_FALSE)
+        error (_("Pending set to off. Cannot add skip pending function.\n To enable: skip pending on"));
 
-	  if (nquery (_("\
-Ignore function pending future shared library load? ")))
-	    {
-	      /* Add the unverified skiplist entry.  */
-	      skip_function (arg);
-	    }
-	  return;
-	}
+      if (lookup_symbol (arg, NULL, VAR_DOMAIN, NULL) == NULL)
+      {
+        printf_filtered (_("No function named: %s \n"), arg);
+
+        /* If pending skip file/function support is auto query and the user
+           selects no, then simply return the error code.  */
+        if (pending_skip_support == AUTO_BOOLEAN_AUTO
+            && !nquery (_("Ignore function pending future shared library load? ")))
+          return;
+
+         printf_filtered (_("Function will be added in the pending state.\n"));
+      }
 
       skip_function (arg);
     }
@@ -224,6 +244,36 @@ Skiplist entry should have either a filename or a function name."));
     }
 
   do_cleanups (tbl_chain);
+}
+
+static void
+skip_pending_command (char *arg, int from_tty)
+{
+  if (arg == NULL)
+  {
+    pending_skip_support = AUTO_BOOLEAN_AUTO;
+    printf_filtered ("No argument, pending set to: auto.\n");
+  }
+  else if (strcasecmp(arg, "on") == 0)
+  {
+    pending_skip_support = AUTO_BOOLEAN_TRUE;
+    printf_filtered ("Pending set to: on.\n");
+  }
+  else if (strcasecmp(arg, "off") == 0)
+  {
+    pending_skip_support = AUTO_BOOLEAN_FALSE;
+    printf_filtered ("Pending set to: off.\n");
+  }
+  else if (strcasecmp(arg, "auto") == 0)
+  {
+    pending_skip_support = AUTO_BOOLEAN_AUTO;
+    printf_filtered ("Pending set to: auto.\n");
+  }
+  else
+  {
+    pending_skip_support = AUTO_BOOLEAN_AUTO;
+    printf_filtered ("Pending set to: auto.\n");
+  }
 }
 
 static void
@@ -439,6 +489,12 @@ If you don't specify any numbers or ranges, we'll delete all skip entries.\n\n\
 Usage: skip delete [NUMBERS AND/OR RANGES]"),
            &skiplist);
 
+  add_cmd ("pending", class_breakpoint, skip_pending_command, _("\
+Disable skip entries.  You can specify numbers (e.g. \"skip disable 1 3\"), \
+ranges (e.g. \"skip disable 4-8\"), or both (e.g. \"skip disable 1 3 4-8\").\n\n\
+If you don't specify any numbers or ranges, we'll disable all skip entries.\n\n\
+Usage: skip disable [NUMBERS AND/OR RANGES]"), &skiplist);
+
   add_info ("skip", skip_info, _("\
 Display the status of skips.  You can specify numbers (e.g. \"skip info 1 3\"), \
 ranges (e.g. \"skip info 4-8\"), or both (e.g. \"skip info 1 3 4-8\").\n\n\
@@ -447,4 +503,6 @@ Usage: skip info [NUMBERS AND/OR RANGES]\n\
 The \"Type\" column indicates one of:\n\
 \tfile        - ignored file\n\
 \tfunction    - ignored function"));
+
+pending_skip_support = AUTO_BOOLEAN_AUTO;
 }
