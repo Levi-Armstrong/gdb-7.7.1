@@ -8,6 +8,10 @@ If with a binutils release, see binutils/README;  if with a libg++ release,
 see libg++/README, etc.  That'll give you info about this
 package -- supported targets, how to use it, how to report bugs, etc.
 
+Before you get started ensure that you have the required libraries:
+	sudo apt-get install flex
+	sudo apt-get install bison
+
 It is now possible to automatically configure and build a variety of
 tools with one command.  To build all of the tools contained herein,
 run the ``configure'' script here, e.g.:
